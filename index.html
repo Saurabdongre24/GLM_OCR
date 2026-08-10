@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GLM-OCR — Invoice Extraction Demo</title>
+<style>
+  :root {
+    --paper:#FBFBFC; --sunk:#F1F3F6; --rule:#DDE1E8;
+    --ink:#12181F; --soft:#4A535F; --faint:#78828F;
+    --region:#2A66C4; --cell:#C42B2B; --good:#1F7A4D; --warn:#9A6510;
+    --mono: ui-monospace,"SF Mono","Cascadia Mono","Segoe UI Mono",Consolas,monospace;
+    --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  }
+  @media (prefers-color-scheme: dark){ :root{
+    --paper:#0E1216; --sunk:#161C23; --rule:#2A323C;
+    --ink:#E6EAEF; --soft:#A8B2BE; --faint:#7C8792;
+    --region:#79A8F0; --cell:#FF7A72; --good:#5FCC94; --warn:#E0A94A;
+  }}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--paper);color:var(--ink);font:15px/1.55 var(--sans);
+       display:flex;flex-direction:column;overflow:hidden}
+
+  /* ---------- header ---------- */
+  header{display:flex;align-items:center;gap:1rem;padding:.7rem 1.1rem;
+         border-bottom:1px solid var(--rule);flex-shrink:0}
+  .brand{font-family:var(--serif);font-size:1.15rem;font-weight:600;letter-spacing:-.01em}
+  .brand small{font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;
+               text-transform:uppercase;color:var(--faint);display:block;font-weight:400}
+  .spacer{flex:1}
+  .pill{font-family:var(--mono);font-size:.7rem;letter-spacing:.05em;text-transform:uppercase;
+        padding:.25rem .6rem;border-radius:100px;border:1px solid var(--rule);color:var(--soft);
+        display:inline-flex;align-items:center;gap:.4rem;white-space:nowrap}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex-shrink:0}
+  .dot.ok{background:var(--good)} .dot.busy{background:var(--warn);animation:pulse 1.2s infinite}
+  .dot.bad{background:var(--cell)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+  /* ---------- layout ---------- */
+  main{flex:1;display:flex;min-height:0}
+  .stage{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--sunk)}
+  aside{width:390px;flex-shrink:0;border-left:1px solid var(--rule);
+        display:flex;flex-direction:column;min-height:0;background:var(--paper)}
+
+  /* ---------- upload ---------- */
+  .center{flex:1;display:flex;align-items:center;justify-content:center;padding:2rem}
+  .drop{border:2px dashed var(--rule);border-radius:10px;padding:3rem 3.5rem;text-align:center;
+        background:var(--paper);max-width:520px;transition:border-color .15s,background .15s}
+  .drop.over{border-color:var(--region);background:color-mix(in srgb,var(--region) 6%,var(--paper))}
+  .drop h2{font-family:var(--serif);font-size:1.5rem;margin:0 0 .4rem;font-weight:600}
+  .drop p{color:var(--soft);margin:0 0 1.3rem;font-size:.92rem}
+  button{font:inherit;font-weight:600;padding:.55rem 1.1rem;border-radius:6px;cursor:pointer;
+         border:1px solid var(--ink);background:var(--ink);color:var(--paper)}
+  button:hover{opacity:.88}
+  button.ghost{background:transparent;color:var(--ink);border-color:var(--rule)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--region);outline-offset:2px}
+
+  .opts{display:flex;gap:.9rem;flex-wrap:wrap;justify-content:center;margin-top:1.3rem;
+        padding-top:1.1rem;border-top:1px solid var(--rule)}
+  .opt{display:flex;flex-direction:column;gap:.2rem;align-items:flex-start}
+  .opt label{font-family:var(--mono);font-size:.63rem;letter-spacing:.08em;
+             text-transform:uppercase;color:var(--faint)}
+  select,input[type=number]{font:inherit;font-size:.85rem;padding:.28rem .45rem;border-radius:5px;
+        border:1px solid var(--rule);background:var(--paper);color:var(--ink);width:104px}
+
+  /* ---------- progress ---------- */
+  .log{font-family:var(--mono);font-size:.75rem;line-height:1.65;background:var(--paper);
+       border:1px solid var(--rule);border-radius:8px;padding:.9rem 1rem;
+       max-height:340px;width:min(660px,90vw);overflow-y:auto;white-space:pre-wrap}
+  .log div{color:var(--soft)} .log div:last-child{color:var(--ink)}
+  .phases{display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;justify-content:center}
+  .ph{font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;
+      padding:.3rem .7rem;border-radius:5px;border:1px solid var(--rule);color:var(--faint)}
+  .ph.active{border-color:var(--region);color:var(--region);font-weight:600}
+  .ph.done{border-color:var(--good);color:var(--good)}
+
+  /* ---------- toolbar ---------- */
+  .bar{display:flex;align-items:center;gap:.5rem;padding:.5rem .8rem;
+       border-bottom:1px solid var(--rule);background:var(--paper);flex-wrap:wrap;flex-shrink:0}
+  .toggle{font-family:var(--mono);font-size:.7rem;letter-spacing:.04em;padding:.3rem .6rem;
+          border-radius:5px;border:1px solid var(--rule);background:transparent;color:var(--soft);
+          cursor:pointer;font-weight:500;display:inline-flex;align-items:center;gap:.4rem}
+  .toggle[aria-pressed=true]{border-color:currentColor;font-weight:650}
+  .toggle.s1[aria-pressed=true]{color:var(--region)}
+  .toggle.s2[aria-pressed=true]{color:var(--ink)}
+  .toggle.s3[aria-pressed=true]{color:var(--cell)}
+  .toggle i{width:9px;height:9px;border-radius:2px;background:currentColor;display:inline-block}
+  .sep{width:1px;height:20px;background:var(--rule);margin:0 .2rem}
+  .dl{font-family:var(--mono);font-size:.7rem;letter-spacing:.03em;padding:.3rem .6rem;
+      border-radius:5px;border:1px solid var(--rule);color:var(--soft);text-decoration:none;
+      white-space:nowrap;font-weight:500}
+  .dl:hover{border-color:var(--ink);color:var(--ink)}
+  .dl:focus-visible{outline:2px solid var(--region);outline-offset:2px}
+
+  /* ---------- page viewer ---------- */
+  .viewport{flex:1;overflow:auto;padding:1.4rem;display:flex;justify-content:center;
+            align-items:flex-start}
+  .pagewrap{position:relative;line-height:0;box-shadow:0 2px 14px rgba(0,0,0,.13);
+            background:#fff;flex-shrink:0}
+  .pagewrap img{display:block;max-width:100%;height:auto}
+  .box{position:absolute;cursor:pointer;border:2px solid var(--region);
+       background:color-mix(in srgb,var(--region) 7%,transparent)}
+  .box:hover{background:color-mix(in srgb,var(--region) 18%,transparent)}
+  .box.sel{border-width:3px;background:color-mix(in srgb,var(--region) 24%,transparent);
+           box-shadow:0 0 0 2px var(--paper)}
+  .box.skipped{border-color:#9AA3AE;border-style:dashed;background:none}
+  .box .tag{position:absolute;top:-17px;left:-2px;font:600 10px/1.5 var(--mono);
+            background:var(--region);color:#fff;padding:0 5px;border-radius:3px 3px 0 0;
+            white-space:nowrap;line-height:16px;pointer-events:none}
+  .cellbox{position:absolute;border:1px solid var(--cell);pointer-events:none;
+           background:color-mix(in srgb,var(--cell) 8%,transparent)}
+
+  /* ---------- inspector ---------- */
+  .tabs{display:flex;border-bottom:1px solid var(--rule);flex-shrink:0}
+  .tab{flex:1;padding:.6rem .4rem;text-align:center;font-family:var(--mono);font-size:.7rem;
+       letter-spacing:.07em;text-transform:uppercase;color:var(--faint);cursor:pointer;
+       border:none;background:none;border-bottom:2px solid transparent;font-weight:500}
+  .tab[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink);font-weight:650}
+  .panel{flex:1;overflow-y:auto;padding:1rem 1.1rem;display:none;flex-direction:column;gap:.9rem}
+  .panel[data-show=true]{display:flex}
+
+  .stat{display:grid;grid-template-columns:1fr auto;gap:.3rem .8rem;font-size:.87rem}
+  .stat dt{color:var(--soft)}
+  .stat dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+  h3{font-family:var(--mono);font-size:.68rem;letter-spacing:.09em;text-transform:uppercase;
+     color:var(--faint);margin:0;font-weight:600}
+  .card{border:1px solid var(--rule);border-radius:7px;padding:.8rem .9rem;
+        display:flex;flex-direction:column;gap:.55rem}
+  .txt{font-family:var(--mono);font-size:.76rem;line-height:1.6;white-space:pre-wrap;
+       word-break:break-word;background:var(--sunk);padding:.7rem .8rem;border-radius:5px;
+       max-height:280px;overflow:auto}
+  .coord{font-family:var(--mono);font-size:.72rem;color:var(--soft);
+         font-variant-numeric:tabular-nums}
+  .badge{font-family:var(--mono);font-size:.64rem;letter-spacing:.06em;text-transform:uppercase;
+         padding:.15rem .45rem;border-radius:4px;border:1px solid var(--rule);color:var(--soft)}
+  .rlist{display:flex;flex-direction:column;gap:1px;background:var(--rule);
+         border:1px solid var(--rule);border-radius:7px;overflow:hidden}
+  .ritem{background:var(--paper);border:none;text-align:left;padding:.5rem .7rem;cursor:pointer;
+         display:flex;gap:.6rem;align-items:baseline;font:inherit;font-size:.83rem;color:var(--ink)}
+  .ritem:hover{background:var(--sunk)}
+  .ritem[aria-current=true]{background:color-mix(in srgb,var(--region) 12%,var(--paper))}
+  .ritem .ix{font-family:var(--mono);font-size:.7rem;color:var(--faint);min-width:1.6em}
+  .ritem .lb{font-family:var(--mono);font-size:.7rem;min-width:5.4em;color:var(--soft)}
+  .ritem .pv{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--soft)}
+
+  table.data{border-collapse:collapse;width:100%;font-size:.78rem}
+  table.data td,table.data th{border:1px solid var(--rule);padding:.28rem .45rem;text-align:left}
+  table.data th{background:var(--sunk);font-weight:650}
+  .tblwrap{overflow-x:auto;border-radius:5px}
+
+  .bar-row{display:flex;align-items:center;gap:.5rem;font-size:.8rem}
+  .bar-row .nm{min-width:8.5em;color:var(--soft)}
+  .bar-row .tr{flex:1;height:9px;background:var(--sunk);border-radius:100px;overflow:hidden}
+  .bar-row .fl{height:100%;background:var(--region);border-radius:100px}
+  .bar-row .vl{font-family:var(--mono);font-size:.74rem;font-variant-numeric:tabular-nums;
+               min-width:4.2em;text-align:right}
+  .muted{color:var(--faint);font-size:.85rem}
+  .err{border-left:3px solid var(--cell);background:var(--sunk);padding:.7rem .9rem;
+       border-radius:0 6px 6px 0;font-size:.86rem}
+  .stagenote{font-size:.8rem;color:var(--soft);border-left:2px solid var(--rule);
+             padding-left:.7rem}
+  .hidden{display:none !important}
+  @media (max-width:900px){ aside{display:none} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">GLM-OCR<small>Invoice extraction demo</small></div>
+  <div class="spacer"></div>
+  <span class="pill" id="modelPill"><span class="dot" id="modelDot"></span><span id="modelTxt">checking…</span></span>
+  <button class="ghost hidden" id="newBtn">New document</button>
+</header>
+
+<main>
+  <div class="stage">
+
+    <!-- upload -->
+    <div class="center" id="uploadView">
+      <div class="drop" id="drop">
+        <h2>Drop an invoice PDF</h2>
+        <p>Every piece of text comes back with its exact location on the page — down to individual table cells.</p>
+        <button id="pickBtn">Choose file</button>
+        <input type="file" id="file" accept=".pdf,.png,.jpg,.jpeg" hidden>
+        <div class="opts">
+          <div class="opt"><label for="dpi">DPI</label>
+            <select id="dpi"><option value="150">150 · fast</option>
+            <option value="175" selected>175 · balanced</option>
+            <option value="300">300 · small fonts</option></select></div>
+          <div class="opt"><label for="cellText">Cell text</label>
+            <select id="cellText"><option value="derive" selected>derive · fast</option>
+            <option value="batch">batch · accurate</option>
+            <option value="none">none · boxes only</option></select></div>
+          <div class="opt"><label for="batch">Batch size</label>
+            <input type="number" id="batch" value="12" min="1" max="32"></div>
+          <div class="opt"><label for="pages">Pages</label>
+            <input type="text" id="pages" placeholder="all" style="width:104px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- progress -->
+    <div class="center hidden" id="runView">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:.2rem">
+        <div class="phases">
+          <span class="ph" data-ph="rendering">0 · rasterize</span>
+          <span class="ph" data-ph="s1">1 · layout</span>
+          <span class="ph" data-ph="s2">2 · read text</span>
+          <span class="ph" data-ph="s3">3 · cells</span>
+        </div>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+
+    <!-- results -->
+    <div class="hidden" id="resultView" style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <div class="bar">
+        <button class="ghost" id="prev">‹</button>
+        <span class="pill" id="pageLbl">page 1 / 1</span>
+        <button class="ghost" id="next">›</button>
+        <span class="sep"></span>
+        <button class="toggle s1" id="t1" aria-pressed="true"><i></i>Stage 1 · regions</button>
+        <button class="toggle s3" id="t3" aria-pressed="true"><i></i>Stage 3 · cells</button>
+        <span class="sep"></span>
+        <button class="toggle" id="tOverlay" aria-pressed="false">server overlay</button>
+        <span class="spacer"></span>
+        <a class="dl" id="dlKv" download>⭳ text (JSON)</a>
+        <a class="dl" id="dlMd" download>⭳ boxes (MD)</a>
+        <a class="dl" id="dlRaw" download>⭳ full</a>
+      </div>
+      <div class="viewport" id="viewport">
+        <div class="pagewrap" id="pagewrap"><img id="pageImg" alt="Invoice page"></div>
+      </div>
+    </div>
+  </div>
+
+  <aside id="sidebar">
+    <div class="tabs">
+      <button class="tab" id="tabInspect" aria-selected="true">Inspect</button>
+      <button class="tab" id="tabTables" aria-selected="false">Tables</button>
+      <button class="tab" id="tabStages" aria-selected="false">Stages</button>
+      <button class="tab" id="tabPerf" aria-selected="false">Speed</button>
+    </div>
+    <div class="panel" data-show="true" id="pInspect"></div>
+    <div class="panel" id="pTables"></div>
+    <div class="panel" id="pStages"></div>
+    <div class="panel" id="pPerf"></div>
+  </aside>
+</main>
+
+<script>
+/* All API paths are RELATIVE (no leading slash). Colab serves this page behind
+   a proxy that adds a path prefix, so "/api/health" would resolve to the proxy
+   root and 404. "api/health" resolves against the page's own base in both
+   cases. Do not "tidy" these back to absolute paths. */
+const API = new URL("api/", document.baseURI).href;
+const api = path => API + path;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let JOB = null, DATA = null, PAGE = 0, SEL = null, LOGN = 0;
+
+/* ---------- model status ---------- */
+async function poll_health(){
+  try{
+    const h = await (await fetch(api("health"))).json();
+    const dot = $("modelDot"), txt = $("modelTxt");
+    dot.className = "dot " + ({ready:"ok",loading:"busy",failed:"bad",cold:""}[h.models]||"");
+    txt.textContent = { ready:`models ready · ${h.load_seconds}s`, loading:"loading models…",
+                        failed:"model load failed", cold:"starting…" }[h.models] || h.models;
+    if(h.models === "failed") txt.title = h.error;
+    if(h.models === "loading" || h.models === "cold") setTimeout(poll_health, 1500);
+  }catch{ setTimeout(poll_health, 2500); }
+}
+poll_health();
+
+/* ---------- upload ---------- */
+const drop = $("drop");
+$("pickBtn").onclick = () => $("file").click();
+$("file").onchange = e => e.target.files[0] && upload(e.target.files[0]);
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]));
+
+async function upload(file){
+  const q = new URLSearchParams({ dpi:$("dpi").value, batch_size:$("batch").value,
+    cell_text:$("cellText").value, pages:$("pages").value.trim() });
+  const fd = new FormData(); fd.append("file", file);
+  show("run"); $("log").innerHTML = ""; LOGN = 0;
+  try{
+    const r = await fetch(api("jobs?" + q), { method:"POST", body:fd });
+    if(!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    JOB = (await r.json()).job_id;
+    poll_job();
+  }catch(err){ fail(err.message); }
+}
+
+function show(v){
+  $("uploadView").classList.toggle("hidden", v!=="upload");
+  $("runView").classList.toggle("hidden", v!=="run");
+  $("resultView").classList.toggle("hidden", v!=="result");
+  $("resultView").style.display = v==="result" ? "flex" : "none";
+  $("newBtn").classList.toggle("hidden", v==="upload");
+}
+function fail(msg){
+  show("run");
+  $("log").innerHTML += `<div style="color:var(--cell)">ERROR — ${esc(msg)}</div>`;
+}
+$("newBtn").onclick = () => { JOB=null; DATA=null; SEL=null; show("upload"); };
+
+/* ---------- progress ---------- */
+async function poll_job(){
+  if(!JOB) return;
+  let s;
+  try{ s = await (await fetch(api(`jobs/${JOB}?since=${LOGN}`))).json(); }
+  catch{ return setTimeout(poll_job, 1200); }
+
+  if(s.log?.length){
+    LOGN = s.log_total;
+    const box = $("log");
+    box.innerHTML += s.log.map(l => `<div>${esc(l)}</div>`).join("");
+    box.scrollTop = box.scrollHeight;
+  }
+  // Light the stage chips from what the pipeline prints.
+  const txt = $("log").textContent;
+  mark("rendering", s.phase!=="queued", /\[1\/3\]/.test(txt));
+  mark("s1", /\[1\/3\]/.test(txt), /\[2\/3\]/.test(txt));
+  mark("s2", /\[2\/3\]/.test(txt), /\[3\/3\]/.test(txt));
+  mark("s3", /\[3\/3\]/.test(txt), s.phase==="done");
+
+  if(s.phase === "done"){ DATA = s.result; render(); return; }
+  if(s.phase === "error"){ return fail(s.error); }
+  setTimeout(poll_job, 700);
+}
+function mark(ph, active, done){
+  const el = document.querySelector(`.ph[data-ph="${ph}"]`);
+  if(el) el.className = "ph" + (done ? " done" : active ? " active" : "");
+}
+
+/* ---------- results ---------- */
+function render(){
+  show("result"); PAGE = 0; SEL = null;
+  $("dlKv").href  = api(`jobs/${JOB}/export/kv.json`);
+  $("dlMd").href  = api(`jobs/${JOB}/export/boxes.md`);
+  $("dlRaw").href = api(`jobs/${JOB}/export/raw.json`);
+  drawPage(); fillTables(); fillStages(); fillPerf(); fillInspect();
+}
+
+function regionsOf(p){ return DATA.pages[p]?.regions ?? []; }
+
+function drawPage(){
+  const n = DATA.pages.length;
+  $("pageLbl").textContent = `page ${PAGE+1} / ${n}`;
+  $("prev").disabled = PAGE===0; $("next").disabled = PAGE>=n-1;
+
+  const useOverlay = $("tOverlay").getAttribute("aria-pressed")==="true";
+  $("pageImg").src = api(`jobs/${JOB}/page/${PAGE}?overlay=${useOverlay}`);
+
+  const wrap = $("pagewrap");
+  wrap.querySelectorAll(".box,.cellbox").forEach(e => e.remove());
+  if(useOverlay) return;                       // server already drew them
+
+  const showR = $("t1").getAttribute("aria-pressed")==="true";
+  const showC = $("t3").getAttribute("aria-pressed")==="true";
+
+  regionsOf(PAGE).forEach((r, i) => {
+    if(showR){
+      const [l,t,rt,b] = r.bbox_norm;
+      const d = document.createElement("div");
+      d.className = "box" + (r.skipped ? " skipped" : "") + (SEL===i ? " sel" : "");
+      d.style.cssText = `left:${l*100}%;top:${t*100}%;width:${(rt-l)*100}%;height:${(b-t)*100}%`;
+      d.innerHTML = `<span class="tag">#${r.seq_index} ${esc(r.label)} ${r.layout_confidence.toFixed(2)}</span>`;
+      d.onclick = () => { SEL = i; drawPage(); fillInspect(); selectTab("Inspect"); };
+      wrap.appendChild(d);
+    }
+    if(showC) (r.cells||[]).forEach(c => {
+      const [l,t,rt,b] = c.bbox_norm_page;
+      const d = document.createElement("div");
+      d.className = "cellbox";
+      d.style.cssText = `left:${l*100}%;top:${t*100}%;width:${(rt-l)*100}%;height:${(b-t)*100}%`;
+      wrap.appendChild(d);
+    });
+  });
+}
+
+$("prev").onclick = () => { PAGE--; SEL=null; drawPage(); fillInspect(); };
+$("next").onclick = () => { PAGE++; SEL=null; drawPage(); fillInspect(); };
+["t1","t3","tOverlay"].forEach(id => $(id).onclick = () => {
+  const el = $(id); el.setAttribute("aria-pressed", el.getAttribute("aria-pressed")!=="true");
+  drawPage();
+});
+
+/* ---------- inspector ---------- */
+function fillInspect(){
+  const rs = regionsOf(PAGE), p = $("pInspect");
+  if(SEL === null){
+    const s = DATA.summary;
+    p.innerHTML = `
+      <h3>This document</h3>
+      <dl class="stat">
+        <dt>Pages</dt><dd>${s.pages}</dd>
+        <dt>Regions found</dt><dd>${s.regions}</dd>
+        <dt>Regions with text</dt><dd>${s.with_text}</dd>
+        <dt>Tables</dt><dd>${s.tables}</dd>
+        <dt>Table cells</dt><dd>${s.cells}</dd>
+        <dt>Merged cells</dt><dd>${s.merged_cells}</dd>
+        <dt>Characters read</dt><dd>${s.characters.toLocaleString()}</dd>
+      </dl>
+      <p class="muted">Click any box on the page to inspect it.</p>
+      <h3>Regions on page ${PAGE+1}</h3>
+      <div class="rlist">${rs.map((r,i)=>`
+        <button class="ritem" data-i="${i}">
+          <span class="ix">#${r.seq_index}</span>
+          <span class="lb">${esc(r.label)}</span>
+          <span class="pv">${esc(r.skipped ? "— "+r.skipped : (r.text||"").slice(0,60))}</span>
+        </button>`).join("")}</div>`;
+    p.querySelectorAll(".ritem").forEach(b => b.onclick = () => {
+      SEL = +b.dataset.i; drawPage(); fillInspect(); });
+    return;
+  }
+
+  const r = rs[SEL];
+  const [l,t,rt,b] = r.bbox_norm;
+  p.innerHTML = `
+    <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+      <button class="ghost" id="back" style="padding:.25rem .6rem;font-size:.8rem">← all regions</button>
+      <span class="badge">${esc(r.label)}</span>
+      ${r.skipped ? `<span class="badge" style="color:var(--warn)">skipped</span>` : ""}
+    </div>
+    <div class="card">
+      <h3>Stage 1 · geometry</h3>
+      <div class="coord">detection confidence &nbsp;${r.layout_confidence.toFixed(3)}</div>
+      <div class="coord">normalized &nbsp;[${[l,t,rt,b].map(v=>v.toFixed(4)).join(", ")}]</div>
+      <div class="coord">pixels &nbsp;[${r.bbox_px.join(", ")}] &nbsp;·&nbsp; ${r.width_px}×${r.height_px}px</div>
+    </div>
+    <div class="card">
+      <h3>Stage 2 · text</h3>
+      ${r.text ? `<div class="txt">${esc(r.text)}</div>
+                  <div class="coord">${r.text.length} characters · ${r.ocr_ms}ms</div>`
+               : `<p class="muted">${esc(r.skipped || "no text returned")}</p>`}
+    </div>
+    ${r.cells?.length ? `
+    <div class="card">
+      <h3>Stage 3 · ${r.cells.length} cells</h3>
+      <div class="coord">method: ${esc(r.cells[0].method||"—")}</div>
+      <div class="tblwrap">${r.cell_html || ""}</div>
+      <details><summary class="muted" style="cursor:pointer;font-size:.8rem">per-cell coordinates</summary>
+        <div class="txt" style="margin-top:.5rem">${r.cells.map(c =>
+          `r${c.row} c${c.col} span(${c.rowspan}×${c.colspan})  ` +
+          `[${c.bbox_norm_page.map(v=>v.toFixed(3)).join(", ")}]  ${esc(c.text||"")}`).join("\n")}</div>
+      </details>
+    </div>` : ""}`;
+  p.querySelector("#back").onclick = () => { SEL=null; drawPage(); fillInspect(); };
+  p.querySelectorAll("table").forEach(t => t.className = "data");
+}
+
+/* ---------- tables tab ---------- */
+function fillTables(){
+  const tabs = DATA.pages.flatMap(p => p.regions.filter(r => r.label==="table"));
+  $("pTables").innerHTML = tabs.length ? tabs.map(r => `
+    <div class="card">
+      <h3>page ${r.page_index+1} · region #${r.seq_index}</h3>
+      ${r.cells?.length ? `
+        <div class="coord">${r.cells.length} cells ·
+          ${r.cells.filter(c=>c.colspan>1||c.rowspan>1).length} merged ·
+          ${esc(r.cells[0].method||"")}</div>
+        <div class="tblwrap">${r.cell_html||""}</div>`
+      : `<p class="muted">No cells detected — showing the model's raw table output.</p>
+         <div class="txt">${esc(r.text||"")}</div>`}
+    </div>`).join("") : `<p class="muted">No tables detected in this document.</p>`;
+  $("pTables").querySelectorAll("table").forEach(t => t.className = "data");
+}
+
+/* ---------- stages tab ---------- */
+function fillStages(){
+  const s = DATA.summary;
+  $("pStages").innerHTML = `
+    <p class="muted">Three stages, because no single model can do all of it.</p>
+
+    <div class="card">
+      <h3 style="color:var(--region)">Stage 1 · layout</h3>
+      <div><b>PP-DocLayoutV3</b> — an object detector</div>
+      <div class="coord">produced ${s.regions} region boxes</div>
+      <p class="stagenote">Knows <b>where</b> things are, not what they say.
+        A table is always one box — “cell” is not in its vocabulary, so no
+        threshold setting can reveal cells.</p>
+    </div>
+
+    <div class="card">
+      <h3>Stage 2 · text</h3>
+      <div><b>GLM-OCR</b> — a 0.9B image→text model</div>
+      <div class="coord">read ${s.with_text} regions · ${s.characters.toLocaleString()} characters</div>
+      <p class="stagenote">Knows <b>what</b> they say, not where. It returns no
+        coordinates at all — there is no geometry output in its architecture.
+        Each region is cropped and read separately so nothing gets skipped.</p>
+    </div>
+
+    <div class="card">
+      <h3 style="color:var(--cell)">Stage 3 · cells</h3>
+      <div><b>OpenCV morphology</b> — no model</div>
+      <div class="coord">${s.cells} cells · ${s.merged_cells} merged · method: ${esc(s.cell_method||"—")}</div>
+      <p class="stagenote">In a bordered table the cells are the <b>holes between
+        the lines</b>. Keep only long horizontal and vertical runs — that erases
+        every letter and leaves the grid — then invert and trace each hole.
+        A merged cell is simply one wider hole, so spans come out for free.</p>
+    </div>
+
+    <p class="muted">Toggle “Stage 1 · regions” and “Stage 3 · cells” in the
+      toolbar to see what each contributes to the page.</p>`;
+}
+
+/* ---------- perf tab ---------- */
+function fillPerf(){
+  const t = DATA.timings, max = Math.max(...t.phases.map(p=>p.seconds), 0.01);
+  $("pPerf").innerHTML = `
+    <dl class="stat">
+      <dt>Total</dt><dd>${t.total}s</dd>
+      <dt>Per page</dt><dd>${t.per_page}s</dd>
+      <dt>Pages</dt><dd>${DATA.summary.pages}</dd>
+      <dt>Model load (once, at startup)</dt><dd>${t.model_load}s</dd>
+    </dl>
+    <h3>Where the time went</h3>
+    ${t.phases.map(p => `
+      <div class="bar-row">
+        <span class="nm">${esc(p.name.replace(/^stage \d /,""))}</span>
+        <span class="tr"><span class="fl" style="width:${p.seconds/max*100}%"></span></span>
+        <span class="vl">${p.seconds}s</span>
+      </div>`).join("")}
+    <div class="card">
+      <h3>Settings used</h3>
+      <dl class="stat">
+        <dt>DPI</dt><dd>${DATA.options.dpi}</dd>
+        <dt>Batch size</dt><dd>${DATA.options.batch_size}</dd>
+        <dt>Cell text mode</dt><dd>${esc(DATA.options.cell_text)}</dd>
+      </dl>
+      <p class="stagenote">Models are loaded once at startup, so this run paid
+        only the per-page cost. <b>derive</b> takes cell text from the table the
+        model already read, removing roughly 80% of all model calls.</p>
+    </div>`;
+}
+
+/* ---------- tabs ---------- */
+function selectTab(name){
+  ["Inspect","Tables","Stages","Perf"].forEach(n => {
+    const on = n===name || (name==="Speed" && n==="Perf");
+    $("tab"+n)?.setAttribute("aria-selected", on);
+    $("p"+n).dataset.show = on;
+  });
+}
+["Inspect","Tables","Stages","Perf"].forEach(n =>
+  $("tab"+n).onclick = () => selectTab(n));
+</script>
+</body>
+</html>
