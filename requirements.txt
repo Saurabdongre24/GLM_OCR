@@ -1,0 +1,23 @@
+# GLM-OCR invoice demo — Colab
+#   pip install -r requirements.txt
+#
+# Installing transformers also upgrades pillow. If Colab already imported the
+# old pillow you will get "ImportError: cannot import name '_Ink'". Fix:
+#   pip install --force-reinstall --no-cache-dir pillow
+# then start a fresh terminal.
+
+transformers>=4.57
+accelerate
+timm
+pypdfium2
+pillow
+opencv-python-headless
+numpy
+
+fastapi
+uvicorn
+python-multipart
+
+# Only needed if you use an ngrok token. Without one the server downloads
+# cloudflared by itself, which needs no account.
+pyngrok
