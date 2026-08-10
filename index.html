@@ -26,6 +26,7 @@
   /* ---------- header ---------- */
   header{display:flex;align-items:center;gap:1rem;padding:.7rem 1.1rem;
          border-bottom:1px solid var(--rule);flex-shrink:0}
+  .logo{height:34px;width:auto;border-radius:6px;flex-shrink:0;display:block}
   .brand{font-family:var(--serif);font-size:1.15rem;font-weight:600;letter-spacing:-.01em}
   .brand small{font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;
                text-transform:uppercase;color:var(--faint);display:block;font-weight:400}
@@ -169,6 +170,15 @@
 <body>
 
 <header>
+  <!-- ═══════════════════════════════════════════════════════════════
+       LOGO: replace YOUR_LOGO_PATH_HERE.png with your image path.
+       Use a RELATIVE path (e.g. "static/logo.png" or "logo.png"),
+       NOT "/logo.png" — this page runs behind a proxy with a path
+       prefix, so absolute paths will 404 (same rule as the API calls).
+       If the image can't be found, it hides itself automatically.
+       ═══════════════════════════════════════════════════════════════ -->
+  <img src="YOUR_LOGO_PATH_HERE.png" alt="AutomatR logo" class="logo"
+       onerror="this.style.display='none'">
   <div class="brand">AutomatR_OCR<small>Invoice extraction demo</small></div>
   <div class="spacer"></div>
   <span class="pill" id="modelPill"><span class="dot" id="modelDot"></span><span id="modelTxt">checking…</span></span>
